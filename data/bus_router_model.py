@@ -66,15 +66,25 @@ class SchoolBusRouter(object):
             print("Invalid route provided")
             return
         list_index = 0
-        if(pointA in self.bus_routes[route_name]):
-            list_index = self.bus_routes[route_name].index(pointA) + 1
+        try:
+            list_index = self.bus_routes[route_name].index(pointA)
+        except ValueError:
+            list_index = -1
+
+        if(list_index > 0):
+            list_index += 1
             self.bus_routes[route_name].insert(list_index, pointB)
-        elif(pointB in self.bus_routes[route_name]):
-            list_index = self.bus_routes[route_name].index(pointB)
-            self.bus_routes[route_name].insert(list_index, pointA)
         else:
-            self.bus_routes[route_name].append(pointA)
-            self.bus_routes[route_name].append(pointB)
+            try:
+                list_index = self.bus_routes[route_name].index(pointB)
+            except ValueError:
+                list_index = -1
+
+            if(list_index > 0):
+                self.bus_routes[route_name].insert(list_index, pointA)
+            else:
+                self.bus_routes[route_name].append(pointA)
+                self.bus_routes[route_name].append(pointB)
 
     # Removal in routes is simply removing a bus stop in a provided route
     def remove_route_point(self, route_name, point):
@@ -95,7 +105,6 @@ class SchoolBusRouter(object):
         for x in range(len(self.bus_routes[route_name])-1):
             pointA = self.bus_routes[route_name][x-1]
             pointB = self.bus_routes[route_name][x]
-            print(pointA, pointB)
             distance = math.sqrt( (pointA[0] - pointB[0])**2 + (pointA[1] - pointB[1])**2 )
             total += distance
         return total
@@ -107,6 +116,23 @@ class SchoolBusRouter(object):
             return
         value = self.geographic_map[(point[0], point[1])]
         return value
+
+    # Grab a subset of the main data for a given school, as well as the school coordinates (goal node)
+    def sample(self, school_name):
+        if not(school_name in self.schools.keys()):
+            print("Invalid school name")
+            return
+
+        # Map out the points of interest (stops, school) for a given school
+        school_map = {}
+        for coordinate in self.geographic_map.keys():
+            entry = self.get(coordinate)
+            if (type(entry) is dict):
+                count = entry[school_name]
+                if(float(count) > 0.0):
+                    school_map[coordinate] = int(float(count))
+
+        return school_map, self.schools[school_name]
 
     # Read into the routing properties of a bus route
     def check_route(self, route_name, school_name):
@@ -138,13 +164,7 @@ class SchoolBusRouter(object):
             return
 
         # Map out the points of interest (stops, school) for a given school
-        school_map = {}
-        for coordinate in self.geographic_map.keys():
-            entry = self.get(coordinate)
-            if (type(entry) is dict):
-                count = entry[school_name]
-                if(float(count) > 0.0):
-                    school_map[coordinate] = int(float(count))
+        school_map, goal = self.sample(school_name)
 
         # Simulate a bus going through each route to pick up students
         for i in range(len(school_routes)):

@@ -6,9 +6,5 @@ General
 - Buses travel at a constant speed between points
 - We are not concerned about the starting location/time of buses, nor is bus supply a concern (problem becomes scheduling)
 
-Best-First Search
+Best-First Search & Tabu Search
 - Buses don't have to pick up all the students in a bus stop
-
-Simplified Graph Search Algorithm (i.e. Depth-First Search; additional assumptions can be made during implementation)
-- Buses can carry an indefinite number of students (allow one bus to pick up all students for a school)
-- Each bus stop has an equal number of students (simplify the problem down to finding a shortest path)

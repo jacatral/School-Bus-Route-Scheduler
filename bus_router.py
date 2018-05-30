@@ -3,6 +3,8 @@ from data.bus_router_model import SchoolBusRouter
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
+import math
+import copy
 
 # Sample case is information provided by Auckland, New Zealand
 bus_size = 48
@@ -24,10 +26,28 @@ bus_router = SchoolBusRouter(stop_file, school_file, bus_size)
 coordinates, schools = bus_router.prepare()
 school_keys = list(schools.keys())
 
-def Best_First_Search(index, display_graph=False):
-    school_name = school_keys[index]
+def Find_Stop_Index(array, target):
+    for x in range(len(array)):
+        arr = array[x]
+        for y in range(len(arr)):
+            point = arr[y]
+            if(point[0] == target[0] and point[1] == target[1]):
+                return [x, y]
+    return [-1, -1]
+
+def Route_Distance(route):
+    if(len(route) <= 1):
+        return 0
+    total = 0
+    for x in range(len(route)-1):
+        pointA = route[x]
+        pointB = route[x+1]
+        distance = math.sqrt( (pointA[0] - pointB[0])**2 + (pointA[1] - pointB[1])**2 )
+        total += distance
+    return total
+
+def Draw_Bus_Routes(school_name, school_routes):
     data, goal = bus_router.sample(school_name)
-    school_routes = []
 
     # Put the coordinates & students in each stop into an array
     points = np.array(list(data.keys()))
@@ -41,17 +61,36 @@ def Best_First_Search(index, display_graph=False):
     plt.clf()
     plt.scatter(X, Y, S, c=c)
 
+    for route in school_routes:
+        for x in range(len(route)-1):
+            pointA = route[x]
+            pointB = route[x+1]
+
+            x_line = [pointA[0], pointB[0]]
+            y_line = [pointA[1], pointB[1]]
+            plt.plot(x_line, y_line, "ro-", markersize=0)
+    plt.show()
+    
+
+def Best_First_Search(school_name, cutoff = 0):
+    data, goal = bus_router.sample(school_name)
+    school_routes = []
+
+    # Put the coordinates & students in each stop into an array
+    points = np.array(list(data.keys()))
+    students = np.fromiter(data.values(), dtype=int)
+    if(cutoff > 0):
+        points = points[:cutoff]
+        students = students[:cutoff]
+
     routes = 0
-    route_names = []
     while(np.sum(students) > 0):
-        new_route_name = school_name + "_" + str(routes)
-        bus_router.new_route(new_route_name)
-        route_names.append(new_route_name)
-        
+        route = []
         # Find most distant node to start a route from
         distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
         sorted_indices = np.argsort(distances)
         distant_point = points[sorted_indices[-1]]
+        route.append(distant_point)
         
         seats_available = bus_size
         if(students[sorted_indices[-1]] < seats_available):
@@ -88,37 +127,114 @@ def Best_First_Search(index, display_graph=False):
             if(students[sorted_indices[0]] == 0):
                 points = np.delete(points, sorted_indices[0], 0)
                 students = np.delete(students, sorted_indices[0], 0)
-            bus_router.assign_route(new_route_name,distant_point,target_node)
 
-            x_line = [distant_point[0], target_node[0]]
-            y_line = [distant_point[1], target_node[1]]
-            plt.plot(x_line, y_line, "ro-", markersize=0)
+            route.append(target_node)
             distant_point = target_node
-        target_node = goal
-        bus_router.assign_route(new_route_name,distant_point,target_node)
 
-        x_line = [distant_point[0], target_node[0]]
-        y_line = [distant_point[1], target_node[1]]
-        plt.plot(x_line, y_line, "ro-", markersize=0)
         #print("Completed route: "+new_route_name)
+        route.append(goal)
+        school_routes.append(route)
         routes += 1
-    school_routes.append(route_names)
-    result = bus_router.test(school_name, route_names)
-    print(school_name + " bus routes leave out " + str(result) + " students")
-    total_score = 0
-    for x in range(len(route_names)):
-        weight = bus_router.compute_route_cost(route_names[x])
-        #print(route_names[x] + " travels a total of " + str(weight) + " degrees")
-        total_score += weight
-    total_distance = round(total_score*111,2)
-    print(str(routes) + " bus routes used to cover " + school_name + ". The routes travel a total of " + str(total_distance) + " km")
-    # Display path
-    if(display_graph):
-        plt.show()
 
-for x in range(len(school_keys)):
-    Best_First_Search(x)
-Best_First_Search(0, True)
+    return school_routes
+
+def Tabu_Search(school_name, initial, cutoff=0):
+    data, goal = bus_router.sample(school_name)
+    coordinates = list(data.keys())
+    if(cutoff > 0):
+        coordinates = coordinates[:cutoff]
+
+    #Initialize the variables for the tabu search
+    max_iter = 100
+    tabu_list = {point: [0, 0] for point in coordinates}
+    
+    ideal_sol = initial
+    ideal_score = sum(Route_Distance(route) for route in ideal_sol) + min(bus_router.test_routes(school_name, ideal_sol), 10)
+    iter_sol = copy.deepcopy(ideal_sol)
+    
+    last_action = []
+    iter_cnt = 0
+    while (not last_action is None) and (iter_cnt < max_iter):
+        last_action = None
+        score_diff = 5 # Set up a tolerance of score difference of -5 when considering possible solutions
+        planned_action = []
+
+        # We can assess the current iteration route data
+        iter_dist = [Route_Distance(route) for route in iter_sol]
+        iter_students = bus_router.test_routes(school_name, iter_sol)
+        for a in range(len(coordinates)-1):
+            # Tabu search without aspiration
+            if(tabu_list[coordinates[a]][0] > iter_cnt):
+                continue
+            for b in range(len(coordinates)-(a+1)):
+                if(tabu_list[coordinates[a+b+1]][0] > iter_cnt):
+                    continue
+
+                # Make a copy of the routes as well as the locations of the coordinates to swap
+                change_sol = copy.deepcopy(iter_sol)
+                pa = Find_Stop_Index(change_sol, coordinates[a])
+                pb = Find_Stop_Index(change_sol, coordinates[a+b+1])
+
+                # Swap the two positions
+                temp = change_sol[pa[0]][pa[1]]
+                change_sol[pa[0]][pa[1]] = change_sol[pb[0]][pb[1]]
+                change_sol[pb[0]][pb[1]] = temp
+                
+                # Assess the new score, then compare it to the new one
+                iter_score = (iter_dist[pa[0]] + iter_dist[pb[0]]) + min(iter_students, 10)
+                
+                change_dist = Route_Distance(change_sol[pa[0]]) + Route_Distance(change_sol[pb[0]])
+                change_students = bus_router.test_routes(school_name, change_sol)
+                change_score = change_dist + min(change_students, 10)
+
+                # The best score is kept for future use
+                result = change_score - iter_score
+                if(result < score_diff):
+                    score_diff = result
+                    planned_action = [coordinates[a], coordinates[a+b+1]]
+
+        if(len(planned_action) > 0):
+            last_action = planned_action
+            # Log the nodes in this action as tabu for 20 iterations
+            tabu_list[planned_action[0]][0] = 20 + iter_cnt
+            tabu_list[planned_action[1]][0] = 20 + iter_cnt
+            tabu_list[planned_action[0]][1] += 1
+            tabu_list[planned_action[1]][1] += 1
+
+            # Get the positions of the coordinates, then perform the swap
+            pa = Find_Stop_Index(iter_sol, planned_action[0])
+            pb = Find_Stop_Index(iter_sol, planned_action[1])
+
+            temp = iter_sol[pa[0]][pa[1]]
+            iter_sol[pa[0]][pa[1]] = iter_sol[pb[0]][pb[1]]
+            iter_sol[pb[0]][pb[1]] = temp
+
+            iter_score = sum(Route_Distance(route) for route in iter_sol) + min(bus_router.test_routes(school_name, iter_sol), 10)
+            # Compare the current solution to the ideal one, replace if the current is better
+            if(iter_score < ideal_score):
+                ideal_sol = iter_sol
+                ideal_score = iter_score
+        print(".", end=" ")
+        iter_cnt += 1
+            
+    
+    return ideal_sol
+
+#for x in range(len(school_keys)):
+#    Best_First_Search(x)
+#Best_First_Search(0, True)
+
+school_name = school_keys[0]
+init_sol = Best_First_Search(school_name)
+print("Best First Search Completed")
+print("Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in init_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, init_sol)))
+initial = copy.deepcopy(init_sol)
+tabu_sol = Tabu_Search(school_name, initial)
+print("Tabu Search Completed")
+print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in tabu_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, tabu_sol)))
+#init_sol = Best_First_Search(school_name, cutoff=40)
+#tabu_sol = Tabu_Search(school_name, init_sol, cutoff=40)
+Draw_Bus_Routes(school_name, tabu_sol)
   
 """Test Case: reading every coordinate provided
 for item in coordinates:
@@ -131,30 +247,4 @@ for item in coordinates:
 print(bus_router.get([174.82397, -36.90762667]))
 print(bus_router.get([174.736683, -36.737197]))
 print(bus_router.get([1, 1]))
-"""
-"""Test Case: establishing a route
-bus_router.new_route("test")
-bus_router.check_route("test", "inst0")
-print(bus_router.compute_route_cost("test"))
-
-bus_router.assign_route("test",[174.74725, -36.71222889],[174.736683, -36.737197])
-print(bus_router.compute_route_cost("test"))
-
-bus_router.assign_route("test", [174.736683, -36.737197],[1.0,1.5])
-print(bus_router.compute_route_cost("test"))
-bus_router.remove_route_point("test", [1.0,1.5])
-print(bus_router.compute_route_cost("test"))
-
-bus_router.check_route("test", "inst0")
-bus_router.print_routes()
-
-bus_router.remove_route("test")
-"""
-"""Test Case: testing school bus routes
-bus_router.new_route("test")
-bus_router.assign_route("test",[174.74725, -36.71222889],[174.736683, -36.737197])
-
-print(bus_router.test("inst0", []))
-miss = bus_router.test("inst0", ["test", "one"])
-print("inst0 still has " + str(miss) + " students without a bus")
 """

@@ -7,9 +7,7 @@ class SchoolBusRouter(object):
         self.stopfile = stopfile
         self.schoolfile = schoolfile
         self.geographic_map = {}
-        self.bus_routes = {}
         self.schools = {}
-        self.bus_capacity = bus_size
 
     def prepare(self):
         if(not (Path(self.stopfile).is_file() and Path(self.schoolfile).is_file())):
@@ -48,67 +46,6 @@ class SchoolBusRouter(object):
         print("Stops & Schools loaded into a coordinate dictionary")
         return self.geographic_map.keys(), self.schools
 
-    def new_route(self, route_name):
-        self.bus_routes[route_name] = []
-
-    def remove_route(self, route_name):
-        self.bus_routes.pop(route_name, None)
-
-    def print_routes(self):
-        for route_name in self.bus_routes.keys():
-            print(route_name + " : " + str(self.bus_routes[route_name]))
-
-    # If the first point is in the route, append the coordinates of pointB after pointA
-    #  if the second point is in, prepend the coordinates
-    #  otherwise simply insert pointA, then pointB
-    def assign_route(self, route_name, pointA, pointB):
-        if(not route_name in self.bus_routes):
-            print("Invalid route provided")
-            return
-        list_index = 0
-        try:
-            list_index = self.bus_routes[route_name].index(pointA)
-        except ValueError:
-            list_index = -1
-
-        if(list_index > 0):
-            list_index += 1
-            self.bus_routes[route_name].insert(list_index, pointB)
-        else:
-            try:
-                list_index = self.bus_routes[route_name].index(pointB)
-            except ValueError:
-                list_index = -1
-
-            if(list_index > 0):
-                self.bus_routes[route_name].insert(list_index, pointA)
-            else:
-                self.bus_routes[route_name].append(pointA)
-                self.bus_routes[route_name].append(pointB)
-
-    # Removal in routes is simply removing a bus stop in a provided route
-    def remove_route_point(self, route_name, point):
-        if(not route_name in self.bus_routes):
-            print("Invalid route provided")
-            return
-        if(not point in self.bus_routes[route_name]):
-            print("Coordinates not in the provided bus route")
-        else:
-            self.bus_routes[route_name].remove(point)
-
-    # Return total distance traveled by the bus
-    def compute_route_cost(self, route_name):
-        if(not route_name in self.bus_routes):
-            print("Invalid route provided")
-            return
-        total = 0
-        for x in range(len(self.bus_routes[route_name])-1):
-            pointA = self.bus_routes[route_name][x-1]
-            pointB = self.bus_routes[route_name][x]
-            distance = math.sqrt( (pointA[0] - pointB[0])**2 + (pointA[1] - pointB[1])**2 )
-            total += distance
-        return total
-
     # Grab data from the geographic map
     def get(self, point):
         if not((point[0], point[1]) in self.geographic_map.keys()):
@@ -134,31 +71,8 @@ class SchoolBusRouter(object):
 
         return school_map, self.schools[school_name]
 
-    # Read into the routing properties of a bus route
-    def check_route(self, route_name, school_name):
-        if(not route_name in self.bus_routes):
-            print("Invalid route provided")
-            return
-        if not(school_name in self.schools.keys()):
-            print("Invalid school name")
-            return
-        
-        route = self.bus_routes[route_name]
-        if(len(route) > 0 and (route[-1][0] != self.schools[school_name][0] or route[-1][1] != self.schools[school_name][1])):
-            print("Warning: Route " + route_name + " does not end at the school " + school_name)
-        capacity = self.bus_capacity
-        for x in range(len(route)-1):
-            point = route[x]
-            entry = self.get((point[0], point[1]))
-            students = int(float(entry[school_name]))
-            if(students <= capacity):
-                capacity -= students
-            else:
-                capacity = 0
-        print("Route " + route_name + " concludes its route with " + str(capacity) + " empty seats")
-
-    # See how many students are left over for a school given its bus routes
-    def test(self, school_name, school_routes):
+    # See how many students are left over for a school, if provided a list of bus routes
+    def test_routes(self, school_name, route_list):
         if not(school_name in self.schools.keys()):
             print("Invalid school name")
             return
@@ -167,12 +81,8 @@ class SchoolBusRouter(object):
         school_map, goal = self.sample(school_name)
 
         # Simulate a bus going through each route to pick up students
-        for i in range(len(school_routes)):
-            route_name = school_routes[i]
-            if(not route_name in self.bus_routes):
-                print("Invalid route provided")
-                continue
-            route = self.bus_routes[route_name]
+        for i in range(len(route_list)):
+            route = route_list[i]
             if(route[-1][0] != self.schools[school_name][0] or route[-1][1] != self.schools[school_name][1]):
                 print("Route " + route_name + " does not end at the school")
                 continue

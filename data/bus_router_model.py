@@ -8,6 +8,7 @@ class SchoolBusRouter(object):
         self.schoolfile = schoolfile
         self.geographic_map = {}
         self.schools = {}
+        self.bus_capacity = bus_size
 
     def prepare(self):
         if(not (Path(self.stopfile).is_file() and Path(self.schoolfile).is_file())):

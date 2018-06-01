@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 import copy
+import time
 
 # Sample case is information provided by Auckland, New Zealand
 bus_size = 48
@@ -156,7 +157,7 @@ def Tabu_Search(school_name, initial, cutoff=0):
     iter_cnt = 0
     while (not last_action is None) and (iter_cnt < max_iter):
         last_action = None
-        score_diff = 5 # Set up a tolerance of score difference of -5 when considering possible solutions
+        score_diff = 5 # Set up a tolerance margin of 5 when considering possible solutions
         planned_action = []
 
         # We can assess the current iteration route data
@@ -217,20 +218,23 @@ def Tabu_Search(school_name, initial, cutoff=0):
         print(".", end=" ")
         iter_cnt += 1
             
-    
+    print("!")
     return ideal_sol
 
 #for x in range(len(school_keys)):
 #    Best_First_Search(x)
 #Best_First_Search(0, True)
+start = time.perf_counter()
 
 school_name = school_keys[0]
 init_sol = Best_First_Search(school_name)
-print("Best First Search Completed")
+bfs_time = time.perf_counter()
+print("Best First Search Completed. Time elapsed: "+str(bfs_time-start))
 print("Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in init_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, init_sol)))
 initial = copy.deepcopy(init_sol)
 tabu_sol = Tabu_Search(school_name, initial)
-print("Tabu Search Completed")
+tabu_time = time.perf_counter()
+print("Tabu Search Completed. Time elapsed: "+str(tabu_time-bfs_time))
 print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in tabu_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, tabu_sol)))
 #init_sol = Best_First_Search(school_name, cutoff=40)
 #tabu_sol = Tabu_Search(school_name, init_sol, cutoff=40)

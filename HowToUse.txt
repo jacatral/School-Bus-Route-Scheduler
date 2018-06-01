@@ -1,0 +1,5 @@
+bus_router.py - The general program that is used to schedule the bus routes
+data/bus_router_model.py - Class program to provide a model to grab data points & test routes
+source/bus_route_data_processor.py - Class program to read raw data to generate the dataset
+
+Run 'bus_router.py' to observe the functions at work

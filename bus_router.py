@@ -3,9 +3,8 @@ from data.bus_router_model import SchoolBusRouter
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
-import math
-import copy
-import time
+import math, random
+import copy, time
 
 # Sample case is information provided by Auckland, New Zealand
 bus_size = 48
@@ -221,6 +220,65 @@ def Tabu_Search(school_name, initial, cutoff=0):
     print("!")
     return ideal_sol
 
+def Annealing_Search(school_name, initial, cutoff=0):
+    data, goal = bus_router.sample(school_name)
+    coordinates = list(data.keys())
+    if(cutoff > 0):
+        coordinates = coordinates[:cutoff]
+
+    # Initialize the variables for the tabu search
+    sol = initial
+    temp = 100.0
+    temp_decay_rate = 0.95
+
+    # Obtain initial score of system
+    sol_dist = [Route_Distance(route) for route in sol]
+    sol_students = bus_router.test_routes(school_name, sol)
+    score = sum(sol_dist) + min(sol_students, 10)
+
+    while(temp > 1.0):
+        temp_sol = copy.deepcopy(sol)
+        num_iters = 1000
+
+        for i in range(num_iters):
+            # Pick two random points to swap
+            selected_points = np.random.choice(len(coordinates), 2)
+            pointA = coordinates[selected_points[0]]
+            pointB = coordinates[selected_points[1]]
+            
+            # Obtain the indices of the points
+            indexA = Find_Stop_Index(temp_sol, pointA)
+            indexB = Find_Stop_Index(temp_sol, pointB)
+
+            # Swap the two positions
+            t_coord = temp_sol[indexA[0]][indexA[1]]
+            temp_sol[indexA[0]][indexA[1]] = temp_sol[indexB[0]][indexB[1]]
+            temp_sol[indexB[0]][indexB[1]] = t_coord
+                    
+            # Assess the new score, then compare it to the new one
+            temp_dist = [Route_Distance(route) for route in temp_sol]
+            temp_students = bus_router.test_routes(school_name, temp_sol)
+            temp_score = sum(temp_dist) + min(temp_students, 10)
+
+            # If the selected solution is worse, try the acceptance probability
+            change = temp_score - score
+            if(change >= 0):
+                seed = random.random()
+                accept_prob = math.exp(change/temp)
+                if(seed >= accept_prob):
+                    continue
+
+            # For better solutions (or those that pass acceptance probability, update solution
+            sol = temp_sol
+            score = temp_score
+
+        # Decrease temperature according to decay rules
+        temp *= temp_decay_rate
+        print(".", end=" ")
+
+    print("!")
+    return sol
+
 #for x in range(len(school_keys)):
 #    Best_First_Search(x)
 #Best_First_Search(0, True)
@@ -232,13 +290,24 @@ bfs_time = time.perf_counter()
 print("Best First Search Completed. Time elapsed: "+str(bfs_time-start))
 print("Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in init_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, init_sol)))
 initial = copy.deepcopy(init_sol)
+
+'''
+#init_sol = Best_First_Search(school_name, cutoff=40)
+#tabu_sol = Tabu_Search(school_name, init_sol, cutoff=40)
+
 tabu_sol = Tabu_Search(school_name, initial)
 tabu_time = time.perf_counter()
 print("Tabu Search Completed. Time elapsed: "+str(tabu_time-bfs_time))
 print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in tabu_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, tabu_sol)))
-#init_sol = Best_First_Search(school_name, cutoff=40)
-#tabu_sol = Tabu_Search(school_name, init_sol, cutoff=40)
 Draw_Bus_Routes(school_name, tabu_sol)
+'''
+
+anneal_sol = Annealing_Search(school_name, initial)
+anneal_time = time.perf_counter()
+print("Simulated Annealing Search Completed. Time elapsed: "+str(anneal_time-bfs_time))
+print("Simulated Annealing Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in anneal_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, anneal_sol)))
+Draw_Bus_Routes(school_name, anneal_sol)
+
   
 """Test Case: reading every coordinate provided
 for item in coordinates:

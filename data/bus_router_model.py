@@ -85,7 +85,7 @@ class SchoolBusRouter(object):
         for i in range(len(route_list)):
             route = route_list[i]
             if(route[-1][0] != self.schools[school_name][0] or route[-1][1] != self.schools[school_name][1]):
-                print("Route " + route_name + " does not end at the school")
+                print("Route does not end at the school")
                 continue
             capacity = self.bus_capacity
             for x in range(len(route)-1):

@@ -220,61 +220,93 @@ def Tabu_Search(school_name, initial, cutoff=0):
     print("!")
     return ideal_sol
 
-def Annealing_Search(school_name, initial, cutoff=0):
+def Annealing_Search(school_name, cutoff=0):
     data, goal = bus_router.sample(school_name)
     coordinates = list(data.keys())
     if(cutoff > 0):
         coordinates = coordinates[:cutoff]
+    
+    # Randomly grab points to create a route
+    sol = []
+    sample_vals = np.array([data[key] for key in coordinates])
+    sample_coords = copy.deepcopy(coordinates)
+    while(sum(sample_vals) > 0):
+        new_route = []
+        space = bus_size
 
-    # Initialize the variables for the tabu search
-    sol = initial
-    temp = 100.0
-    temp_decay_rate = 0.95
+        # Add routes if there's space in the bus
+        while(space > 0):
+            # If no candidate is available, exit
+            candidates = sample_vals - space
+            if(len(candidates[candidates <= 0]) == 0):
+                break
 
-    # Obtain initial score of system
-    sol_dist = [Route_Distance(route) for route in sol]
-    sol_students = bus_router.test_routes(school_name, sol)
-    score = sum(sol_dist) + min(sol_students, 10)
+            # Select a value to take, and get an index to use
+            selected = random.choice(sample_vals[candidates <= 0])
+            index = np.where(sample_vals==selected)[0][0]
 
-    while(temp > 1.0):
-        temp_sol = copy.deepcopy(sol)
-        num_iters = 1000
+            # Remove the value            
+            space -= selected
+            sample_vals = np.delete(sample_vals, index)
 
-        for i in range(num_iters):
-            # Pick two random points to swap
-            selected_points = np.random.choice(len(coordinates), 2)
-            pointA = coordinates[selected_points[0]]
-            pointB = coordinates[selected_points[1]]
+            # Remove the coordinate to use
+            new_route.append( sample_coords[index] )
+            sample_coords = np.delete(sample_coords, index, 0)
+        # Add the goal as the end of the route, then add to solution routes
+        new_route.append(goal)
+        sol.append(new_route)
+
+    # Run annealing search for each route to properly align them
+    for x in range(len(sol)):
+        route = sol[x]
+        # If a bus route only has one stop (total 2 stops)
+        if(len(route) <= 2):
+            continue
+        
+        # Initialize temperature variables
+        temp = 1.0
+        final_temp = 0.01
+        decay_rate = 0.002
+        score = Route_Distance(route)
+        iters = 0;
+
+        # Perform Annealing Search
+        while(temp > final_temp):
+            temp_route = copy.deepcopy(route)
+
+            # Pick a point to remove
+            target_pos = random.randint(0,len(temp_route)-2)
+            selected_point = temp_route[target_pos]
             
-            # Obtain the indices of the points
-            indexA = Find_Stop_Index(temp_sol, pointA)
-            indexB = Find_Stop_Index(temp_sol, pointB)
+            temp_route.pop(target_pos)
 
-            # Swap the two positions
-            t_coord = temp_sol[indexA[0]][indexA[1]]
-            temp_sol[indexA[0]][indexA[1]] = temp_sol[indexB[0]][indexB[1]]
-            temp_sol[indexB[0]][indexB[1]] = t_coord
-                    
+            # Reinsert randomly in an index
+            new_pos = random.randint(0,len(temp_route)-2)
+            temp_route.insert(new_pos, 0)
+            temp_route[new_pos] = np.array(selected_point)
+                     
             # Assess the new score, then compare it to the new one
-            temp_dist = [Route_Distance(route) for route in temp_sol]
-            temp_students = bus_router.test_routes(school_name, temp_sol)
-            temp_score = sum(temp_dist) + min(temp_students, 10)
-
+            temp_score = Route_Distance(temp_route)
+            
             # If the selected solution is worse, try the acceptance probability
             change = temp_score - score
             if(change >= 0):
                 seed = random.random()
-                accept_prob = math.exp(change/temp)
+                accept_prob = math.exp(-(change/(temp)))
                 if(seed >= accept_prob):
                     continue
 
             # For better solutions (or those that pass acceptance probability, update solution
-            sol = temp_sol
+            route = temp_route
             score = temp_score
 
-        # Decrease temperature according to decay rules
-        temp *= temp_decay_rate
-        print(".", end=" ")
+            # Decrease temperature according to decay rules
+            temp = temp/(1+decay_rate*temp)
+            iters += 1
+            if(iters % 10000 == 0):
+                print(".", end=" ")
+        sol[x] = route
+        print("?", end=" ")
 
     print("!")
     return sol
@@ -302,7 +334,7 @@ print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for rou
 Draw_Bus_Routes(school_name, tabu_sol)
 '''
 
-anneal_sol = Annealing_Search(school_name, initial)
+anneal_sol = Annealing_Search(school_name)
 anneal_time = time.perf_counter()
 print("Simulated Annealing Search Completed. Time elapsed: "+str(anneal_time-bfs_time))
 print("Simulated Annealing Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in anneal_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, anneal_sol)))

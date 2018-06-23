@@ -311,6 +311,190 @@ def Annealing_Search(school_name, cutoff=0):
     print("!")
     return sol
 
+def Pheno_to_Geno(solution, reference, end):
+    chromosome = []
+    for route in solution:
+        for point in route:
+            index = -1
+            if((point[0], point[1]) != end):
+                index = reference.index((point[0], point[1]))
+            chromosome.append(index)
+    return chromosome
+def Geno_to_Pheno(chromosome, reference, end):
+    solution = []
+    route = []
+    for index in chromosome:
+        if(index > -1):
+            route.append(np.array(reference[index]))
+        else:
+            route.append(np.array(end))
+            solution.append(route)
+            route = []
+    return solution
+def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
+        prob_c=0.5, prob_m=0.1, crossovers=1, mutations=1):
+    data, goal = bus_router.sample(school_name)
+    points = list(data.keys())
+    vals = [data[key] for key in points]
+
+    population = []
+    #TODO: Adjust population generation to use something that isn't random
+    # Population
+    for x in range(pop_size):        
+        # Randomly grab points to create a route
+        sol = []
+        sample_coords = np.array(copy.deepcopy(points))
+        sample_vals = np.array(copy.deepcopy(vals))
+        while(sum(sample_vals) > 0):
+            sub_route = []
+            space = bus_size
+
+            # Add routes if there's space in the bus
+            while(space > 0):
+                # If no candidate is available, exit
+                candidates = sample_vals - space
+                if(len(candidates[candidates <= 0]) == 0):
+                    break
+
+                # Select a value to take, and get an index to use
+                selected = random.choice(sample_vals[candidates <= 0])
+                index = np.where(sample_vals==selected)[0][0]
+
+                # Remove the value            
+                space -= selected
+                sample_vals = np.delete(sample_vals, index)
+
+                # Remove the coordinate to use
+                sub_route.append( sample_coords[index] )
+                sample_coords = np.delete(sample_coords, index, 0)
+            # Add the goal as the end of the route, then add to solution routes
+            sub_route.append(np.array(goal))
+            sol.append(sub_route)
+        population.append(Pheno_to_Geno(sol,points,goal))
+
+    best_fitnesses = []
+    gen_fitnesses = []
+    # Run Algorithm for a fixed number of generations
+    for x in range(generations):
+        if(x % 50 == 0):
+            print(".", end=" ")
+        
+        # Fitness
+        scores =  [ sum(Route_Distance(route) for route in Geno_to_Pheno(solution, points, goal)) for solution in population ]
+        gen_fitnesses.append(sum(scores)/len(scores))
+        fitnesses = [ 1/sum(Route_Distance(route) for route in Geno_to_Pheno(solution, points, goal)) for solution in population ]
+
+        # Generate probability wheel
+        total_fitness = sum(fitnesses)
+        for i in range(pop_size):
+            fitnesses[i] /= total_fitness
+            if(i > 0):
+                fitnesses[i] += fitnesses[i-1]
+
+        # Selection
+        next_gen = []
+        # Guarantee elite individuals survive
+        sorted_fitnesses = np.argsort(fitnesses)
+        for i in range(elite_num):
+            next_gen.append(population[sorted_fitnesses[-1-i]])
+        # Record best score
+        best_sol = population[sorted_fitnesses[-1]]
+        best_fitnesses.append(sum([Route_Distance(route) for route in Geno_to_Pheno(best_sol, points, goal)]))
+        
+        # Random roll to get an index to use
+        for i in range(pop_size-elite_num):
+            seed = random.random()
+            for j in range(pop_size):
+                if(fitnesses[j] > seed):
+                    j -= 1
+                    if(j < 0):
+                        j = 0
+                    break
+            next_gen.append(population[j])
+        
+        # Crossover
+        for i in range(round(pop_size/2)):
+            # Random roll to see if we can skip crossover
+            seed = random.random()
+            if(seed > prob_c):
+                continue
+            
+            par_1 = next_gen[i*2]
+            par_2 = next_gen[i*2 + 1]
+            
+            # Determine indices where route ends
+            ends_1 = [itr+1 for itr,val in enumerate(par_1) if val<0]
+            ends_2 = [itr+1 for itr,val in enumerate(par_2) if val<0]
+            ends_1.insert(0,0)
+            ends_2.insert(0,0)
+
+            # For each child, add routes from one of the parents
+            child_1 = par_2[ends_2[0]:ends_2[crossovers]]
+            child_2 = par_1[ends_1[0]:ends_1[crossovers]]
+
+            # Populate each child by maintaining the order from one parent
+            space = bus_size
+            for ind in par_1:
+                if(ind in child_1):
+                    continue
+                # If bus cannot fit students at a stop, start a new route
+                if(space < vals[ind]):
+                    child_1.append(-1)
+                    space = bus_size
+                space -= vals[ind]
+                child_1.append(ind)
+            child_1.append(-1)
+
+            space = bus_size
+            for ind in par_2:
+                if(ind in child_2):
+                    continue
+                # If bus cannot fit students at a stop, start a new route
+                if(space < vals[ind]):
+                    child_2.append(-1)
+                    space = bus_size
+                space -= vals[ind]
+                child_2.append(ind)
+            child_2.append(-1)
+            
+            next_gen[i*2] = child_1
+            next_gen[i*2 + 1] = child_2
+
+        # Mutation
+        for i in range(pop_size):
+            # Random roll to see if we can skip crossover
+            seed = random.random()
+            if(seed > prob_m):
+                continue
+
+            # Obtain info about the routes in the solution
+            par = next_gen[i]
+            ends = [itr+1 for itr,val in enumerate(par) if val<0]
+            ends.insert(0,0)
+            
+            # Swap random pairs of points for each route
+            for j in range(len(ends)-1):
+                route = par[ends[j]:ends[j+1]-1]
+                for m in range(mutations):
+                    swap_vals = np.random.choice(route, 2)
+                    ind_a = par.index(swap_vals[0])
+                    ind_b = par.index(swap_vals[1])
+                    par[ind_a] = swap_vals[1]
+                    par[ind_b] = swap_vals[0]
+                
+            next_gen[i] = par
+
+    plt.plot(range(generations), gen_fitnesses)
+    plt.plot(range(generations), best_fitnesses)
+    plt.show()
+    print("!")
+    # Find best child from final generation to return as answer
+    solution_pop = [ Geno_to_Pheno(solution, points, goal) for solution in population ]
+    fitnesses = [ sum(Route_Distance(route) for route in sol) for sol in solution_pop ]
+    sorted_fitnesses = np.argsort(fitnesses)
+    
+    return solution_pop[sorted_fitnesses[0]]
+
 #for x in range(len(school_keys)):
 #    Best_First_Search(x)
 #Best_First_Search(0, True)
@@ -334,11 +518,21 @@ print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for rou
 Draw_Bus_Routes(school_name, tabu_sol)
 '''
 
+'''
 anneal_sol = Annealing_Search(school_name)
 anneal_time = time.perf_counter()
 print("Simulated Annealing Search Completed. Time elapsed: "+str(anneal_time-bfs_time))
 print("Simulated Annealing Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in anneal_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, anneal_sol)))
 Draw_Bus_Routes(school_name, anneal_sol)
+'''
+
+#TODO: Tweak parameters for a more optimal result
+gene_sol = Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
+        prob_c=0.5, prob_m=0.1, crossovers=1, mutations=1)
+gene_time = time.perf_counter()
+print("Genetic Algorithm Search Completed. Time elapsed: "+str(gene_time-bfs_time))
+print("Genetic Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in gene_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, gene_sol)))
+#Draw_Bus_Routes(school_name, gene_sol)
 
   
 """Test Case: reading every coordinate provided

@@ -8,3 +8,7 @@ General
 
 Best-First Search & Tabu Search
 - Buses don't have to pick up all the students in a bus stop
+
+
+Algorithms after Simulated Annealing
+- Each bus stop is assigned to one bus route only

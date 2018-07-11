@@ -495,6 +495,120 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
     
     return solution_pop[sorted_fitnesses[0]]
 
+def Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000):
+    data, goal = bus_router.sample(school_name)
+    school_routes = []
+
+    # Put the coordinates & students in each stop into an array
+    points = np.array(list(data.keys()))
+    students = np.fromiter(data.values(), dtype=int)
+
+    while(np.sum(students) > 0):
+        # Find most distant node to start a route from
+        distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
+        sorted_indices = np.argsort(distances)
+        distant_point = points[sorted_indices[-1]]
+
+        # Remove distant node from list
+        remaining_seats = bus_size - students[sorted_indices[-1]]
+        points = np.delete(points, sorted_indices[-1], 0)
+        students = np.delete(students, sorted_indices[-1], 0)
+
+        # Generate a sublist of neighbour nodes
+        #Distance between 'neighbour' to distant node does not exceed distance between distant & school
+        max_N_dist = distances[sorted_indices[-1]]
+        N_dist = np.sqrt(np.square(distant_point[0]-points[:,0]) + np.square(distant_point[1]-points[:,1]))
+
+        # Remove distant nodes & nodes that have too many students
+        N_ind = np.where( (N_dist <= max_N_dist) & (students <= remaining_seats) )[0]
+        N = points[N_ind]
+        N_stud = students[N_ind]
+        
+        goal_dist = np.sqrt(np.square(goal[0]-N[:,0]) + np.square(goal[1]-N[:,1]))
+        
+        # At this point, generate a (N+1)x(N) array for pheromones
+        #N+1 at first dimension as last row represents start node
+        base_value = 5.0
+        rein_value = 5/num_ants
+        pher = np.ones((len(N)+1, len(N)))*base_value
+        for x in range(len(N)):
+            pher[x, x] = 0
+
+        for i in range(num_iters):
+            # Simulate anthill's ants heading out
+            for ant in range(num_ants):
+                curr = distant_point
+                c_ind = len(N)
+                path = []
+                open_seats = remaining_seats
+                # Simulate an ant navigating from start to end
+                while(open_seats > 0):
+                    # Compute heuristic potential
+                    dists = np.sqrt(np.square(curr[0]-N[:,0]) + np.square(curr[1]-N[:,1]))
+                    potential = dists/(1 + N_stud) + goal_dist/(1 + open_seats)
+                    potential[N_stud > open_seats] = 0
+                    potential[path] = 0 # Tabu: Do not revisit previous nodes
+                    if(sum(potential) <= 0):
+                        #print("Route concluding early")
+                        break
+
+                    # Combine pheromone & heuristic to make probability
+                    probs = pher[c_ind,:] * potential
+                    probs /= sum(probs)
+                    
+                    # Pick a random node to enter
+                    seed = random.random()
+                    for s in range(len(probs)):
+                        seed -= probs[s]
+                        if(seed <= 0):
+                            break
+
+                    # Move to selected node
+                    path.append(s)
+                    curr = N[s]
+                    open_seats -= N_stud[s]
+                    c_ind = s
+                # With complete path, compute route cost & pheromone to add back into syste,
+                route = [ distant_point ] + list(N[path]) + [ goal ]
+                award = rein_value / (Route_Distance(route))
+                
+                # Backtrack through route to update the values
+                for u in range(len(path)):
+                    x,y = (len(N), path[-1-u])
+                    if(u < len(path)-1):
+                        x = path[-2-u]
+                    pher[x,y] += award
+            # Decay function for pheromones
+            #if(i%100 == 0):
+            #    print(pher[70,:])
+            pher *= 0.99
+        #print(pher[70,:])
+        '''
+        # After iterations, go through system relying on pheromones (follow largest trail)
+        c_ind = len(N)
+        path = []
+        open_seats = remaining_seats
+        while(open_seats > 0):
+            p = pher[c_ind,:]
+            s = np.argmax(p)
+            if(open_seats < N_stud[s]):
+                break;
+
+            path.append(s)
+            open_seats -= N_stud[s]
+            c_ind = s
+        '''
+        # Add route to school routes & remove related nodes from future queries
+        school_routes.append(route)
+        points = np.delete(points, N_ind[path], 0)
+        students = np.delete(students, N_ind[path], 0)
+        print(str(Route_Distance(route))+".", end=" ")
+        #Draw_Bus_Routes(school_name, school_routes)
+
+    print("!")
+    
+    return school_routes
+
 #for x in range(len(school_keys)):
 #    Best_First_Search(x)
 #Best_First_Search(0, True)
@@ -532,7 +646,14 @@ gene_sol = Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_nu
 gene_time = time.perf_counter()
 print("Genetic Algorithm Search Completed. Time elapsed: "+str(gene_time-bfs_time))
 print("Genetic Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in gene_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, gene_sol)))
-#Draw_Bus_Routes(school_name, gene_sol)
+Draw_Bus_Routes(school_name, gene_sol)
+
+#TODO: Tweak parameters for a more optimal result
+aco_sol = Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000)
+aco_time = time.perf_counter()
+print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
+print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
+Draw_Bus_Routes(school_name, aco_sol)
 
   
 """Test Case: reading every coordinate provided

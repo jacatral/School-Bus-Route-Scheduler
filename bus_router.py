@@ -349,6 +349,15 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
             sub_route = []
             space = bus_size
 
+            distances = np.sqrt(np.square(goal[0]-sample_coords[:,0]) + np.square(goal[1]-sample_coords[:,1]))
+            sorted_indices = np.argsort(distances)
+            distant_point = points[sorted_indices[-1]]
+
+            space -= sample_vals[sorted_indices[-1]]
+            sub_route.append(sample_coords[sorted_indices[-1]])
+            sample_coords = np.delete(sample_coords, sorted_indices[-1], 0)
+            sample_vals = np.delete(sample_vals, sorted_indices[-1], 0)
+
             # Add routes if there's space in the bus
             while(space > 0):
                 # If no candidate is available, exit
@@ -649,11 +658,11 @@ print("Genetic Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(r
 Draw_Bus_Routes(school_name, gene_sol)
 
 #TODO: Tweak parameters for a more optimal result
-aco_sol = Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000)
-aco_time = time.perf_counter()
-print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
-print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
-Draw_Bus_Routes(school_name, aco_sol)
+# aco_sol = Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000)
+# aco_time = time.perf_counter()
+# print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
+# print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
+# Draw_Bus_Routes(school_name, aco_sol)
 
   
 """Test Case: reading every coordinate provided

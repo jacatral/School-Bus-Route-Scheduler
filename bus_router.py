@@ -347,14 +347,14 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
         sample_vals = np.array(copy.deepcopy(vals))
         while(sum(sample_vals) > 0):
             sub_route = []
-            space = bus_size
 
+            # Find most distant node
             distances = np.sqrt(np.square(goal[0]-sample_coords[:,0]) + np.square(goal[1]-sample_coords[:,1]))
             sorted_indices = np.argsort(distances)
-            distant_point = points[sorted_indices[-1]]
+            distant_point = sample_coords[sorted_indices[-1]]
 
-            space -= sample_vals[sorted_indices[-1]]
-            sub_route.append(sample_coords[sorted_indices[-1]])
+            # Start a bus route from there
+            space = bus_size - sample_vals[sorted_indices[-1]]
             sample_coords = np.delete(sample_coords, sorted_indices[-1], 0)
             sample_vals = np.delete(sample_vals, sorted_indices[-1], 0)
 
@@ -364,39 +364,28 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
             N_dist = np.sqrt(np.square(distant_point[0]-sample_coords[:,0]) + np.square(distant_point[1]-sample_coords[:,1]))
 
             # Remove distant nodes & nodes that have too many students
+            # Get indices, the point, students on point, and distance from goal
             N_ind = np.where( (N_dist <= max_N_dist) & (sample_vals <= space) )[0]
             N = sample_coords[N_ind]
             N_stud = sample_vals[N_ind]
-
             goal_dist = np.sqrt(np.square(goal[0]-N[:,0]) + np.square(goal[1]-N[:,1]))
 
             curr = distant_point
             path = []
-
             # Add routes if there's space in the bus
             while(space > 0):
-                # If no candidate is available, exit
-                candidates = sample_vals - space
-                if(len(candidates[candidates <= 0]) == 0):
-                    break
-
-                # # Select a value to take, and get an index to use
-                # selected = random.choice(sample_vals[candidates <= 0])
-                # index = np.where(sample_vals==selected)[0][0]
-
-                # # Remove the value            
-                # space -= selected
-                # sample_vals = np.delete(sample_vals, index)
-
-                # # Remove the coordinate to use
-                # sub_route.append( sample_coords[index] )
-                # sample_coords = np.delete(sample_coords, index, 0)
-
                 # Compute heuristic potential
                 dists = np.sqrt(np.square(curr[0]-N[:,0]) + np.square(curr[1]-N[:,1]))
                 potential = dists/(1 + N_stud) + goal_dist/(1 + space)
                 potential[N_stud > space] = 0
                 potential[path] = 0 # Tabu: Do not revisit previous nodes
+
+                # Addition: Grab 3 most potential nodes & pick from there
+                sort_pot = np.argsort(potential)
+                top_n = 5
+                if(len(potential) > top_n):
+                    potential = potential[sort_pot[-1-top_n:-1]]
+                    
                 if(sum(potential) <= 0):
                     #print("Route concluding early")
                     break
@@ -409,17 +398,22 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
                     seed -= probs[s]
                     if(seed <= 0):
                         break
+                target_ind = sort_pot[-1-s]
 
-                path.append(s)
-                curr = N[s]
-                space -= N_stud[s]
-                sample_vals = np.delete(sample_vals, s)
-                sample_coords = np.delete(sample_coords, s, 0)
-
+                # Add target node to path & update position to node
+                path.append(target_ind)
+                curr = N[target_ind]
+                space -= N_stud[target_ind]
             # # Add the goal as the end of the route, then add to solution routes
             # sub_route.append(np.array(goal))
             sub_route = [ distant_point ] + list(N[path]) + [ goal ]
             sol.append(sub_route)
+
+            # Remove points in the path from the next iteration of routing
+            sample_vals = np.delete(sample_vals, N_ind[path], 0)
+            sample_coords = np.delete(sample_coords, N_ind[path], 0)
+            
+        #print(sum(Route_Distance(route) for route in sol))
         population.append(Pheno_to_Geno(sol,points,goal))
 
     best_fitnesses = []

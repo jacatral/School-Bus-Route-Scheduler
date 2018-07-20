@@ -69,80 +69,78 @@ def Draw_Bus_Routes(school_name, school_routes):
             x_line = [pointA[0], pointB[0]]
             y_line = [pointA[1], pointB[1]]
             plt.plot(x_line, y_line, "ro-", markersize=0)
+
+    plt.xlabel("Latitude (°)")
+    plt.ylabel("Longitude (°)")
     plt.show()
     
 
-def Best_First_Search(school_name, cutoff = 0):
+def Best_First_Search(school_name):
     data, goal = bus_router.sample(school_name)
     school_routes = []
 
     # Put the coordinates & students in each stop into an array
     points = np.array(list(data.keys()))
     students = np.fromiter(data.values(), dtype=int)
-    if(cutoff > 0):
-        points = points[:cutoff]
-        students = students[:cutoff]
 
-    routes = 0
-    while(np.sum(students) > 0):
-        route = []
-        # Find most distant node to start a route from
+    school_routes = []
+    while(sum(students) > 0):
+        # Find most distant node
         distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
         sorted_indices = np.argsort(distances)
         distant_point = points[sorted_indices[-1]]
-        route.append(distant_point)
-        
-        seats_available = bus_size
-        if(students[sorted_indices[-1]] < seats_available):
-            seats_available -= students[sorted_indices[-1]]
-            students[sorted_indices[-1]] = 0
-        else:
-            students[sorted_indices[-1]] -= seats_available
-            seats_available = 0 
 
-        if(students[sorted_indices[-1]] == 0):
-            points = np.delete(points, sorted_indices[-1], 0)
-            students = np.delete(students, sorted_indices[-1], 0)
-        
-        # Navigate a route until we reach the goal
-        target_node = distant_point
-        while(seats_available > 0 and np.sum(students) > 0):#(target_node[0] != goal[0] and target_node[1] != goal[1]):
-            # Use distance between current & target node, and target & goal node
-            travel_distances = np.sqrt(np.square(distant_point[0]-points[:,0]) + np.square(distant_point[1]-points[:,1]))
-            goal_distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
+        # Start a bus route from there
+        space = bus_size - students[sorted_indices[-1]]
+        points = np.delete(points, sorted_indices[-1], 0)
+        students = np.delete(students, sorted_indices[-1], 0)
 
-            # Potential for next node:
-            #  travel distance scores lower the more students there are in the stop (capped by bus space)
-            #  goal distance scores lower the 
-            potential = travel_distances/(1 + np.minimum(seats_available, students)) + goal_distances/(1 + seats_available)
-            sorted_indices = np.argsort(potential)
-            target_node = points[sorted_indices[0]]
-            if(students[sorted_indices[0]] < seats_available):
-                seats_available -= students[sorted_indices[0]]
-                students[sorted_indices[0]] = 0
-            else:
-                students[sorted_indices[0]] -= seats_available
-                seats_available = 0
+        # Generate a sublist of neighbour nodes
+        #Distance between 'neighbour' to distant node does not exceed distance between distant & school
+        max_N_dist = distances[sorted_indices[-1]]
+        N_dist = np.sqrt(np.square(distant_point[0]-points[:,0]) + np.square(distant_point[1]-points[:,1]))
 
-            if(students[sorted_indices[0]] == 0):
-                points = np.delete(points, sorted_indices[0], 0)
-                students = np.delete(students, sorted_indices[0], 0)
+        # Remove distant nodes & nodes that have too many students
+        # Get indices, the point, students on point, and distance from goal
+        N_ind = np.where( (N_dist <= max_N_dist) & (students <= space) )[0]
+        N = points[N_ind]
+        N_stud = students[N_ind]
+        goal_dist = np.sqrt(np.square(goal[0]-N[:,0]) + np.square(goal[1]-N[:,1]))
 
-            route.append(target_node)
-            distant_point = target_node
+        curr = distant_point
+        path = []
+        # Add routes if there's space in the bus
+        while(space > 0):
+            # Compute heuristic potential
+            dists = np.sqrt(np.square(curr[0]-N[:,0]) + np.square(curr[1]-N[:,1]))
+            potential = dists/(1 + N_stud) + goal_dist/(1 + space)
+            potential[N_stud > space] = 0
+            potential[path] = 0 # Tabu: Do not revisit previous nodes
+            if(sum(potential) == 0):
+                break
 
-        #print("Completed route: "+new_route_name)
-        route.append(goal)
-        school_routes.append(route)
-        routes += 1
+            # Visit most potential node
+            sort_pot = np.argsort(potential)
+            target_ind = sort_pot[-1]
+            
+            path.append(target_ind)
+            curr = N[target_ind]
+            space -= N_stud[target_ind]
+            
 
+                
+        # # Add the goal as the end of the route, then add to solution routes
+        sub_route = [ distant_point ] + list(N[path]) + [ goal ]
+        school_routes.append(sub_route)
+
+        # Remove points in the path from the next iteration of routing
+        points = np.delete(points, N_ind[path], 0)
+        students = np.delete(students, N_ind[path], 0)
     return school_routes
 
-def Tabu_Search(school_name, initial, cutoff=0):
+def Tabu_Search(school_name, initial):
     data, goal = bus_router.sample(school_name)
     coordinates = list(data.keys())
-    if(cutoff > 0):
-        coordinates = coordinates[:cutoff]
 
     #Initialize the variables for the tabu search
     max_iter = 100
@@ -220,11 +218,9 @@ def Tabu_Search(school_name, initial, cutoff=0):
     print("!")
     return ideal_sol
 
-def Annealing_Search(school_name, cutoff=0):
+def Annealing_Search(school_name):
     data, goal = bus_router.sample(school_name)
     coordinates = list(data.keys())
-    if(cutoff > 0):
-        coordinates = coordinates[:cutoff]
     
     # Randomly grab points to create a route
     sol = []
@@ -338,7 +334,6 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
     vals = [data[key] for key in points]
 
     population = []
-    #TODO: Adjust population generation to use something that isn't random
     # Population
     for x in range(pop_size):        
         # Randomly grab points to create a route
@@ -627,33 +622,18 @@ def Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000):
             #    print(pher[70,:])
             pher *= 0.99
         #print(pher[70,:])
-        '''
-        # After iterations, go through system relying on pheromones (follow largest trail)
-        c_ind = len(N)
-        path = []
-        open_seats = remaining_seats
-        while(open_seats > 0):
-            p = pher[c_ind,:]
-            s = np.argmax(p)
-            if(open_seats < N_stud[s]):
-                break;
 
-            path.append(s)
-            open_seats -= N_stud[s]
-            c_ind = s
-        '''
         # Add route to school routes & remove related nodes from future queries
         school_routes.append(route)
         points = np.delete(points, N_ind[path], 0)
         students = np.delete(students, N_ind[path], 0)
         print(str(Route_Distance(route))+".", end=" ")
-        #Draw_Bus_Routes(school_name, school_routes)
 
     print("!")
     
     return school_routes
 
-#for x in range(len(school_keys)):
+#for x in range(5):
 #    Best_First_Search(x)
 #Best_First_Search(0, True)
 start = time.perf_counter()
@@ -664,27 +644,20 @@ bfs_time = time.perf_counter()
 print("Best First Search Completed. Time elapsed: "+str(bfs_time-start))
 print("Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in init_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, init_sol)))
 initial = copy.deepcopy(init_sol)
-
-'''
-#init_sol = Best_First_Search(school_name, cutoff=40)
-#tabu_sol = Tabu_Search(school_name, init_sol, cutoff=40)
+Draw_Bus_Routes(school_name, init_sol)
 
 tabu_sol = Tabu_Search(school_name, initial)
 tabu_time = time.perf_counter()
 print("Tabu Search Completed. Time elapsed: "+str(tabu_time-bfs_time))
 print("Tabu Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in tabu_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, tabu_sol)))
 Draw_Bus_Routes(school_name, tabu_sol)
-'''
 
-'''
 anneal_sol = Annealing_Search(school_name)
 anneal_time = time.perf_counter()
 print("Simulated Annealing Search Completed. Time elapsed: "+str(anneal_time-bfs_time))
 print("Simulated Annealing Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in anneal_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, anneal_sol)))
 Draw_Bus_Routes(school_name, anneal_sol)
-'''
 
-#TODO: Tweak parameters for a more optimal result
 gene_sol = Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
         prob_c=0.5, prob_m=0.1, crossovers=1, mutations=1)
 gene_time = time.perf_counter()
@@ -692,13 +665,11 @@ print("Genetic Algorithm Search Completed. Time elapsed: "+str(gene_time-bfs_tim
 print("Genetic Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in gene_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, gene_sol)))
 Draw_Bus_Routes(school_name, gene_sol)
 
-#TODO: Tweak parameters for a more optimal result
-# aco_sol = Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000)
-# aco_time = time.perf_counter()
-# print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
-# print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
-# Draw_Bus_Routes(school_name, aco_sol)
-
+aco_sol = Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000)
+aco_time = time.perf_counter()
+print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
+print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
+Draw_Bus_Routes(school_name, aco_sol)
   
 """Test Case: reading every coordinate provided
 for item in coordinates:

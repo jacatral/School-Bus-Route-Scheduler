@@ -26,6 +26,7 @@ bus_router = SchoolBusRouter(stop_file, school_file, bus_size)
 coordinates, schools = bus_router.prepare()
 school_keys = list(schools.keys())
 
+
 def Find_Stop_Index(array, target):
     for x in range(len(array)):
         arr = array[x]
@@ -152,6 +153,7 @@ def Tabu_Search(school_name, initial):
     
     last_action = []
     iter_cnt = 0
+    iter_scores = []
     while (not last_action is None) and (iter_cnt < max_iter):
         last_action = None
         score_diff = 5 # Set up a tolerance margin of 5 when considering possible solutions
@@ -208,13 +210,18 @@ def Tabu_Search(school_name, initial):
             iter_sol[pb[0]][pb[1]] = temp
 
             iter_score = sum(Route_Distance(route) for route in iter_sol) + min(bus_router.test_routes(school_name, iter_sol), 10)
+            iter_scores.append(iter_score)
             # Compare the current solution to the ideal one, replace if the current is better
             if(iter_score < ideal_score):
                 ideal_sol = iter_sol
                 ideal_score = iter_score
         print(".", end=" ")
         iter_cnt += 1
-            
+
+    # Plot the score progression
+    #plt.plot(range(iter_cnt), iter_scores)
+    #plt.show()
+    
     print("!")
     return ideal_sol
 
@@ -253,6 +260,8 @@ def Annealing_Search(school_name):
         sol.append(new_route)
 
     # Run annealing search for each route to properly align them
+    total_iters = 0;
+    annealing_scores = []
     for x in range(len(sol)):
         route = sol[x]
         # If a bus route only has one stop (total 2 stops)
@@ -266,6 +275,7 @@ def Annealing_Search(school_name):
         score = Route_Distance(route)
         iters = 0;
 
+        route_scores = []
         # Perform Annealing Search
         while(temp > final_temp):
             temp_route = copy.deepcopy(route)
@@ -283,27 +293,37 @@ def Annealing_Search(school_name):
                      
             # Assess the new score, then compare it to the new one
             temp_score = Route_Distance(temp_route)
+            annealing_scores.append(temp_score)
             
             # If the selected solution is worse, try the acceptance probability
             change = temp_score - score
+            accept = (change < 0)
             if(change >= 0):
                 seed = random.random()
                 accept_prob = math.exp(-(change/(temp)))
-                if(seed >= accept_prob):
-                    continue
+                if(seed < accept_prob):
+                    accept = True
 
             # For better solutions (or those that pass acceptance probability, update solution
-            route = temp_route
-            score = temp_score
+            if(accept):
+                route = temp_route
+                score = temp_score
 
-            # Decrease temperature according to decay rules
-            temp = temp/(1+decay_rate*temp)
             iters += 1
+            total_iters += 1
             if(iters % 10000 == 0):
                 print(".", end=" ")
+            
+            # Decrease temperature according to decay rules
+            temp = temp/(1+decay_rate*temp)
+
         sol[x] = route
         print("?", end=" ")
 
+    # Plot score of routes
+    #plt.plot(range(total_iters), annealing_scores)
+    #plt.show()
+    
     print("!")
     return sol
 
@@ -380,6 +400,8 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
                 top_n = 5
                 if(len(potential) > top_n):
                     potential = potential[sort_pot[-1-top_n:-1]]
+
+                potential = potential[potential > 0]
                     
                 if(sum(potential) <= 0):
                     #print("Route concluding early")
@@ -523,9 +545,12 @@ def Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
                 
             next_gen[i] = par
 
-    plt.plot(range(generations), gen_fitnesses)
-    plt.plot(range(generations), best_fitnesses)
-    plt.show()
+    # Present fitnesses over time
+    #plt.plot(range(generations), gen_fitnesses)
+    #plt.show()
+    #plt.clf()
+    #plt.plot(range(generations), best_fitnesses)
+    #plt.show()
     print("!")
     # Find best child from final generation to return as answer
     solution_pop = [ Geno_to_Pheno(solution, points, goal) for solution in population ]
@@ -623,12 +648,236 @@ def Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000):
             pher *= 0.99
         #print(pher[70,:])
 
+        '''
+        if(len(N) < 25):
+            # Visualize the pheromones in a scatterplot
+            X = np.append(points[:,0], goal[0])
+            Y = np.append(points[:,1], goal[1])
+            S = np.append(students, 50)
+            c = np.append([0 for x in range(len(X)-1)], 250)
+            plt.clf()
+            plt.scatter(X, Y, S, c=c)
+
+            for a in range(len(pher)):
+                pointA = distant_point
+                if( a < len(pher)-1 ):
+                    pointA = N[a]
+
+                total_pher = sum(pher[a])
+                for b in range(len(pher[a])):
+                    pointB = N[b]
+
+                    x_line = [pointA[0], pointB[0]]
+                    y_line = [pointA[1], pointB[1]]
+                    plt.plot(x_line, y_line, "ro-", linewidth=(pher[a][b]/total_pher)*2, markersize=0)
+
+            plt.xlabel("Latitude (°)")
+            plt.ylabel("Longitude (°)")
+            plt.show()
+        '''
         # Add route to school routes & remove related nodes from future queries
         school_routes.append(route)
         points = np.delete(points, N_ind[path], 0)
         students = np.delete(students, N_ind[path], 0)
         print(str(Route_Distance(route))+".", end=" ")
+        
 
+    print("!")
+    
+    return school_routes
+
+def Ant_Tabu_Search(school_name):
+    data, goal = bus_router.sample(school_name)
+    school_routes = []
+
+    # Put the coordinates & students in each stop into an array
+    points = np.array(list(data.keys()))
+    students = np.fromiter(data.values(), dtype=int)
+    anthill_routes = []
+    final_routes = []
+
+    while(np.sum(students) > 0):
+        # Find most distant node to start a route from
+        distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
+        sorted_indices = np.argsort(distances)
+        distant_point = points[sorted_indices[-1]]
+
+        # Remove distant node from list
+        remaining_seats = bus_size - students[sorted_indices[-1]]
+        points = np.delete(points, sorted_indices[-1], 0)
+        students = np.delete(students, sorted_indices[-1], 0)
+
+        # Generate a sublist of neighbour nodes
+        #Distance between 'neighbour' to distant node does not exceed distance between distant & school
+        max_N_dist = distances[sorted_indices[-1]]
+        N_dist = np.sqrt(np.square(distant_point[0]-points[:,0]) + np.square(distant_point[1]-points[:,1]))
+
+        # Remove distant nodes & nodes that have too many students
+        N_ind = np.where( (N_dist <= max_N_dist) & (students <= remaining_seats) )[0]
+        N = points[N_ind]
+        N_stud = students[N_ind]
+        
+        goal_dist = np.sqrt(np.square(goal[0]-N[:,0]) + np.square(goal[1]-N[:,1]))
+
+        # Adaptive behavior, set iterations & anthill ants based on neighbourhood size
+        anthill_iters = max( round(pow(len(N), 13/8)), 500 )
+        anthill_ants = max( round(len(N)/2), 20 )
+        
+        # At this point, generate a (N+1)x(N) array for pheromones
+        #N+1 at first dimension as last row represents start node
+        base_value = 5.0
+        rein_value = 5/anthill_ants
+        pher = np.ones((len(N)+1, len(N)))*base_value
+        for x in range(len(N)):
+            pher[x, x] = 0
+
+        for i in range(anthill_iters):
+            # Simulate anthill's ants heading out
+            for ant in range(anthill_ants):
+                curr = distant_point
+                c_ind = len(N)
+                path = []
+                open_seats = remaining_seats
+                # Simulate an ant navigating from start to end
+                while(open_seats > 0):
+                    # Compute heuristic potential
+                    dists = np.sqrt(np.square(curr[0]-N[:,0]) + np.square(curr[1]-N[:,1]))
+                    potential = dists/(1 + N_stud) + goal_dist/(1 + open_seats)
+                    potential[N_stud > open_seats] = 0
+                    potential[path] = 0 # Tabu: Do not revisit previous nodes
+                    if(sum(potential) <= 0):
+                        #print("Route concluding early")
+                        break
+
+                    # Combine pheromone & heuristic to make probability
+                    #Probability gets weighting towards pheromones at end of algorithm
+                    probs = pow(pher[c_ind,:], 1+i/anthill_iters) * potential
+                    probs /= sum(probs)
+                    
+                    # Pick a random node to enter
+                    seed = random.random()
+                    for s in range(len(probs)):
+                        seed -= probs[s]
+                        if(seed <= 0):
+                            break
+
+                    # Move to selected node
+                    path.append(s)
+                    curr = N[s]
+                    open_seats -= N_stud[s]
+                    c_ind = s
+                # With complete path, compute route cost & pheromone to add back into syste,
+                route = [ distant_point ] + list(N[path]) + [ goal ]
+                award = rein_value / (Route_Distance(route))
+                
+                # Backtrack through route to update the values
+                for u in range(len(path)):
+                    x,y = (len(N), path[-1-u])
+                    if(u < len(path)-1):
+                        x = path[-2-u]
+                    pher[x,y] += award
+            # Decay function for pheromones
+            if(i%100 == 0):
+                print(">", end=" ")
+            pher *= 0.99
+        
+        anthill_routes.append(Route_Distance(route))
+        # Apply tabu search on route
+        tabu_iters = pow( len(route), 3/2 )
+        tabu_time = round( len(route) * 3/8 )
+
+        tabu_list = [[0, 0] for y in range(len(route)-1)]
+        
+        tabu_sol = copy.deepcopy(route)
+        tabu_score = Route_Distance(route)
+        tabit_sol = copy.deepcopy(tabu_sol)
+        
+        last_action = []
+        tab_iter = 0
+        tabu_scores = []
+        while (not last_action is None) and (tab_iter < tabu_iters):
+            last_action = None
+            score_diff = 1 # Set up a tolerance margin of 5 when considering possible solutions
+            planned_action = []
+
+            tabit_score = Route_Distance(tabit_sol)
+            # We can assess the current iteration route data
+            for a in range(len(route)-3):
+                # Tabu search without aspiration
+                if(tabu_list[a][0] > tab_iter):
+                    continue
+                for b in range(a+1, len(route)-2):
+                    if(tabu_list[b][0] > tab_iter):
+                        continue
+
+                    # Swap the two points in a route
+                    tabcha_sol = copy.deepcopy(tabit_sol)
+                    
+                    temp = tabcha_sol[a]
+                    tabcha_sol[a] = tabcha_sol[b]
+                    tabcha_sol[b] = temp
+                    
+                    # Assess the new score, then compare it to the new one
+                    tabcha_score = Route_Distance(tabcha_sol)
+                    result = tabcha_score - tabit_score
+                    
+                    # The best score is kept for future use
+                    
+                    if(result < score_diff):
+                        score_diff = result
+                        planned_action = [a, b]
+
+            if(len(planned_action) > 0):
+                last_action = planned_action
+                a, b = planned_action
+                # Log the nodes in this action as tabu for 20 iterations
+                tabu_list[a][0] = tabu_time + tab_iter
+                tabu_list[b][0] = tabu_time + tab_iter
+                tabu_list[a][1] += 1
+                tabu_list[b][1] += 1
+
+                # Get the positions of the coordinates, then perform the swap
+                temp = tabit_sol[a]
+                tabit_sol[a] = tabit_sol[b]
+                tabit_sol[b] = temp
+
+                tabit_score = Route_Distance(tabit_sol)
+                # Compare the current solution to the ideal one, replace if the current is better
+                if(tabit_score < tabu_score):
+                    tabu_sol = tabit_sol
+                    tabu_score = tabit_score
+
+                
+                tabu_scores.append(tabu_score)
+            if(tab_iter % 100 == 0):
+                print(".", end=" ")
+            tab_iter += 1
+
+        # Plot the score progression
+        #plt.plot(range(len(tabu_scores)), tabu_scores)
+        #plt.xlabel("Iterations")
+        #plt.ylabel("Route Distance (°)")
+        #plt.show()
+        final_routes.append(Route_Distance(tabu_sol))
+        
+        # Add route to school routes & remove related nodes from future queries
+        school_routes.append(tabu_sol)
+        points = np.delete(points, N_ind[path], 0)
+        students = np.delete(students, N_ind[path], 0)
+        print("?", end=" ")
+        #print(bus_router.test_routes(school_name, school_routes))
+
+    # Gauge performance of route
+    '''
+    ind = np.arange(len(anthill_routes))
+    width = 0.35
+    ants = plt.bar(ind, anthill_routes, width, label="Anthill Route Distance")
+    finals = plt.bar(ind+width, final_routes, width, label="Finalized Route Distance")
+    plt.legend(handles=[ants, finals])
+    plt.xlabel("Route")
+    plt.ylabel("Distance (°)")
+    plt.show()
+    '''
     print("!")
     
     return school_routes
@@ -638,13 +887,105 @@ def Ant_System_Algorithm(school_name, num_ants=40, num_iters=1000):
 #Best_First_Search(0, True)
 start = time.perf_counter()
 
+'''
+for x in range(10):
+    school_name = school_keys[x]
+    data, goal = bus_router.sample(school_name)
+
+    # Put the coordinates & students in each stop into an array
+    points = np.array(list(data.keys()))
+    students = np.fromiter(data.values(), dtype=int)
+
+    distances = np.sqrt(np.square(goal[0]-points[:,0]) + np.square(goal[1]-points[:,1]))
+
+    print(len(students), sum(students), max(students),
+          min(students), int(round( sum(students)/len(students) )),
+          max(distances), min(distances), sum(distances)/len(distances) )
+'''
+
+times = []
+scores = []
+'''
+print("Graph Search")
+for x in range(10):
+    school_name = school_keys[x]
+    start = time.perf_counter()
+    sol = Best_First_Search(school_name)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+'''
+
+times.append(0)
+scores.append(0)
+'''
+print("Tabu Search")
+for x in range(1, 10):
+    school_name = school_keys[x]
+    init = Best_First_Search(school_name)
+    start = time.perf_counter()
+    sol = Tabu_Search(school_name, init)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+'''
+'''
+print("Annealing Search")
+for x in range(1, 10):
+    school_name = school_keys[x]
+    start = time.perf_counter()
+    sol = Annealing_Search(school_name)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+'''
+'''
+print("Genetic Search")
+for x in range(1, 10):
+    school_name = school_keys[x]
+    start = time.perf_counter()
+    sol = Genetic_Algorithm(school_name)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+'''
+'''
+print("Anthill Search")
+for x in range(1, 10):
+    school_name = school_keys[x]
+    start = time.perf_counter()
+    sol = Ant_System_Algorithm(school_name)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+'''
+print("Anthill (with Tabu Search) Search")
+for x in range(1, 10):
+    school_name = school_keys[x]
+    start = time.perf_counter()
+    sol = Ant_Tabu_Search(school_name)
+    end = time.perf_counter()
+    times.append(end-start)
+    scores.append(sum(Route_Distance(route) for route in sol))
+    print("Search complete for School #" + str(x+1) + ". Time elapsed: "+str(end-start) + "; Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, sol)))
+
+
+for x in range(len(times)):
+    print(x+1, times[x], scores[x])    
+
+'''
 school_name = school_keys[0]
 init_sol = Best_First_Search(school_name)
 bfs_time = time.perf_counter()
 print("Best First Search Completed. Time elapsed: "+str(bfs_time-start))
 print("Initial Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in init_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, init_sol)))
 initial = copy.deepcopy(init_sol)
-Draw_Bus_Routes(school_name, init_sol)
+#Draw_Bus_Routes(school_name, init_sol)
 
 tabu_sol = Tabu_Search(school_name, initial)
 tabu_time = time.perf_counter()
@@ -656,7 +997,7 @@ anneal_sol = Annealing_Search(school_name)
 anneal_time = time.perf_counter()
 print("Simulated Annealing Search Completed. Time elapsed: "+str(anneal_time-bfs_time))
 print("Simulated Annealing Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in anneal_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, anneal_sol)))
-Draw_Bus_Routes(school_name, anneal_sol)
+#Draw_Bus_Routes(school_name, anneal_sol)
 
 gene_sol = Genetic_Algorithm(school_name, pop_size=20, generations=500, elite_num=2,
         prob_c=0.5, prob_m=0.1, crossovers=1, mutations=1)
@@ -670,7 +1011,14 @@ aco_time = time.perf_counter()
 print("Ant System Algorithm Search Completed. Time elapsed: "+str(aco_time-bfs_time))
 print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in aco_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, aco_sol)))
 Draw_Bus_Routes(school_name, aco_sol)
-  
+
+ats_sol = Ant_Tabu_Search(school_name)
+ats_time = time.perf_counter()
+print("Ant System Algorithm Search Completed. Time elapsed: "+str(ats_time-bfs_time))
+print("Ant System Algorithm Statistics - Total Distance: "+str(sum(Route_Distance(route) for route in ats_sol))+" ; Missed Students: "+str(bus_router.test_routes(school_name, ats_sol)))
+Draw_Bus_Routes(school_name, ats_sol)
+'''
+
 """Test Case: reading every coordinate provided
 for item in coordinates:
     print(item)
